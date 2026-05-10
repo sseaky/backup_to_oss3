@@ -10,6 +10,50 @@ import config
 from tool import get_hostname, get_public_ip, get_default_private_ip, encrypto, decrypto
 from notice import send_feishu_msg
 
+def run_crypto_tool():
+    """--crypto 交互式加密工具"""
+    print("\n" + "="*30)
+    print("      OSS 配置加密工具")
+    print("="*30)
+    url = input("请输入 URL (例: http://10.0.0.118:9000): ").strip()
+    ak = input("请输入 Access Key: ").strip()
+    sk = input("请输入 Secret Key: ").strip()
+    
+    print("\n[*] 加密结果如下 (请拷贝至 config.py 并设置 crypto: True):")
+    print("-" * 50)
+    # 调用 tool.py 中的加密函数，它会直接打印结果
+    print("URL Encrypted:")
+    encrypto(url, config.SKEY)
+    print("\nAK Encrypted:")
+    encrypto(ak, config.SKEY)
+    print("\nSK Encrypted:")
+    encrypto(sk, config.SKEY)
+    print("-" * 50)
+
+def run_decrypto_debug():
+    """--decrypto 遍历配置并解密显示"""
+    print("\n" + "="*30)
+    print("      OSS 配置解密预览")
+    print("="*30)
+    for cfg in config.OSS_CONFIGS:
+        print(f"\n[节点: {cfg['server_name']}]")
+        if cfg.get("crypto"):
+            try:
+                # 调用 tool.py 中的解密函数
+                d_url = decrypto(cfg['url'], config.SKEY)
+                d_ak = decrypto(cfg['access_key'], config.SKEY)
+                d_sk = decrypto(cfg['secret_key'], config.SKEY)
+                print(f"  解密成功:")
+                print(f"  URL: {d_url}")
+                print(f"  AK:  {d_ak}")
+                print(f"  SK:  {d_sk}")
+            except Exception as e:
+                print(f"  [X] 解密失败: {e}")
+        else:
+            print("  (该节点未开启 crypto，显示原样)")
+            print(f"  URL: {cfg['url']}")
+            print(f"  AK:  {cfg['access_key']}")
+
 def get_remote_dir():
     """根据配置生成远程存储目录名"""
     if config.CLIENT_NAME:
@@ -111,8 +155,13 @@ def main():
     args = parser.parse_args()
 
     # 此处逻辑保持原样，可根据需要调用 tool.py 的加密
-    if args.crypto: return
-    if args.decrypto: return
+    if args.crypto:
+        run_crypto_tool()
+        return
+    
+    if args.decrypto:
+        run_decrypto_debug()
+        return
 
     # --- 1. 获取基础环境信息 ---
     start_time = datetime.datetime.now()
