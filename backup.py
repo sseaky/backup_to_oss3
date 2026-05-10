@@ -1,0 +1,197 @@
+import os
+import sys
+import argparse
+import subprocess
+import datetime
+from minio import Minio
+
+# 引入自定义模块
+import config
+from tool import get_hostname, get_public_ip, get_default_private_ip, encrypto, decrypto
+from notice import send_feishu_msg
+
+def get_remote_dir():
+    """根据配置生成远程存储目录名"""
+    if config.CLIENT_NAME:
+        return config.CLIENT_NAME
+    parts = [get_hostname()]
+    if config.CLIENT_NAME_WITH_PUBLIC_IP:
+        pub_ip = get_public_ip()
+        if pub_ip: parts.append(pub_ip)
+    if config.CLIENT_NAME_WITH_PRIVATE_IP:
+        priv_ip = get_default_private_ip()
+        if priv_ip: parts.append(priv_ip)
+    return "_".join(parts)
+
+def collect_status():
+    """收集系统状态信息到临时文件"""
+    if not config.BACKUP_STAUS:
+        return
+    print(f"[*] 正在收集系统状态到 {config.STATUS_FILE_PATH}...")
+    with open(config.STATUS_FILE_PATH, "w") as f:
+        f.write(f"Backup Task Start: {datetime.datetime.now()}\n")
+        # 增加统计命令
+        extra_cmds = ["dpkg -l | head -n 20", "crontab -l"]
+        for cmd in config.STATUS_COMMANDS + extra_cmds:
+            f.write(f"\n{'='*20} {cmd} {'='*20}\n")
+            f.write(subprocess.getoutput(cmd) + "\n")
+
+def get_oss_stats(client, bucket_name, remote_prefix):
+    """获取远程 OSS 存储统计信息"""
+    try:
+        objects = list(client.list_objects(bucket_name, prefix=remote_prefix, recursive=True))
+        if not objects:
+            return 0, "无数据"
+        
+        total_count = len(objects)
+        # 按最后修改时间排序获取最早的备份
+        objects.sort(key=lambda x: x.last_modified)
+        oldest_time = objects[0].last_modified
+        
+        # 计算天数差
+        now = datetime.datetime.now(datetime.timezone.utc)
+        days_ago = (now - oldest_time).days
+        
+        time_str = oldest_time.strftime('%Y-%m-%d')
+        return total_count, f"{days_ago} 天前 ({time_str})"
+    except Exception as e:
+        return "未知", f"获取失败: {e}"
+
+def create_archive():
+    """执行打包与可选的密码加密"""
+    now_tag = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    base_name = f"{config.BACKUP_FILE_STEM}_{now_tag}"
+    tar_name = f"{base_name}.tar.gz"
+
+    print(f"[*] 正在创建本地归档: {tar_name}...")
+    cmd = ["tar", "-czf", tar_name]
+    if config.TAR_DEREFERENCE: cmd.append("-h")
+    for exclude in config.SOURCE_EXCLUDE:
+        cmd.append(f"--exclude={exclude}")
+    
+    paths = [p for p in config.SOURCE_PATH if os.path.exists(p)]
+    if os.path.exists(config.STATUS_FILE_PATH):
+        paths.append(config.STATUS_FILE_PATH)
+    
+    if not paths:
+        raise Exception("没有找到任何有效的备份源路径")
+
+    cmd.extend(paths)
+    subprocess.run(cmd, check=True)
+
+    if config.USE_ZIP:
+        zip_name = f"{base_name}.zip"
+        print(f"[*] 正在执行 ZIP 密码加密...")
+        subprocess.run(["zip", "-P", config.ZIP_PASSWORD, "-q", zip_name, tar_name], check=True)
+        os.remove(tar_name)
+        return zip_name
+    return tar_name
+
+def manage_retention(client, bucket_name, remote_prefix):
+    """执行保留策略并返回删除数量"""
+    objects = list(client.list_objects(bucket_name, prefix=remote_prefix, recursive=True))
+    objects.sort(key=lambda x: x.last_modified)
+    
+    total = len(objects)
+    now = datetime.datetime.now(datetime.timezone.utc)
+    deleted_count = 0
+    
+    for obj in objects:
+        if (total - deleted_count) <= config.MIN_COUNT_TO_KEEP:
+            break
+        if (now - obj.last_modified).days > config.DAYS_TO_RETAIN:
+            client.remove_object(bucket_name, obj.object_name)
+            deleted_count += 1
+    return deleted_count
+
+def main():
+    parser = argparse.ArgumentParser(description="Detailed Backup Script")
+    parser.add_argument("--crypto", action="store_true")
+    parser.add_argument("--decrypto", action="store_true")
+    args = parser.parse_args()
+
+    # 此处逻辑保持原样，可根据需要调用 tool.py 的加密
+    if args.crypto: return
+    if args.decrypto: return
+
+    # --- 1. 获取基础环境信息 ---
+    start_time = datetime.datetime.now()
+    hostname = get_hostname()
+    public_ip = get_public_ip()
+    private_ip = get_default_private_ip()
+    
+    print(f"--- 备份任务开始 ---")
+    print(f"主机: {hostname}")
+    print(f"内网IP: {private_ip} | 公网IP: {public_ip}")
+    
+    collect_status()
+    
+    local_file = None
+    oss_info_msg = []
+    is_all_success = True
+
+    try:
+        # --- 2. 打包本地文件 ---
+        local_file = create_archive()
+        remote_dir = get_remote_dir()
+        
+        # --- 3. 遍历上传至 OSS ---
+        for cfg in config.OSS_CONFIGS:
+            try:
+                print(f"[*] 正在上传至节点: {cfg['server_name']}...")
+                u_val, ak_val, sk_val = cfg['url'], cfg['access_key'], cfg['secret_key']
+                if cfg.get("crypto"):
+                    u_val = decrypto(u_val, config.SKEY); ak_val = decrypto(ak_val, config.SKEY); sk_val = decrypto(sk_val, config.SKEY)
+
+                endpoint = u_val.replace("http://", "").replace("https://", "").rstrip('/')
+                client = Minio(endpoint, access_key=ak_val, secret_key=sk_val, secure=u_val.startswith("https"))
+                
+                # 上传文件
+                remote_path = f"{remote_dir}/{local_file}"
+                client.fput_object(cfg['bucket_name'], remote_path, local_file)
+                
+                # 执行清理并统计远程状态
+                del_num = manage_retention(client, cfg['bucket_name'], f"{remote_dir}/")
+                total_remote, oldest_info = get_oss_stats(client, cfg['bucket_name'], f"{remote_dir}/")
+                
+                # 打印详细本地输出
+                print(f"    [OK] 节点: {cfg['server_name']} | 远程总数: {total_remote} | 最早: {oldest_info} | 清理: {del_num}")
+                
+                # 构造飞书明细消息
+                oss_info_msg.append(
+                    f"🟢 **{cfg['server_name']}**\n"
+                    f" └ 上传成功 (清理:{del_num})\n"
+                    f" └ 远程总数: {total_remote} 份\n"
+                    f" └ 最早备份: {oldest_info}"
+                )
+                
+            except Exception as e:
+                print(f"    [ERR] 节点: {cfg['server_name']} | 错误: {e}")
+                oss_info_msg.append(f"🔴 **{cfg['server_name']}**: 失败 ({str(e)[:50]})")
+                is_all_success = False
+
+        # --- 4. 发送详细飞书通知 ---
+        duration = (datetime.datetime.now() - start_time).seconds
+        notice_content = (
+            f"**服务器**: {hostname}\n"
+            f"**公网IP**: {public_ip}\n"
+            f"**内网IP**: {private_ip}\n"
+            f"**任务耗时**: {duration}s\n"
+            f"**备份归档**: `{local_file}`\n"
+            f"**存储详情**:\n" + "\n".join(oss_info_msg)
+        )
+        send_feishu_msg(f"{hostname} 备份报告", notice_content, is_success=is_all_success)
+
+        # 成功后删除本地归档
+        if is_all_success and local_file and os.path.exists(local_file):
+            os.remove(local_file)
+
+    except Exception as e:
+        print(f"[CRITICAL] 备份失败: {e}")
+        send_feishu_msg("备份任务异常中止", f"主机: {hostname}\n错误原因: {e}", is_success=False)
+    finally:
+        if os.path.exists(config.STATUS_FILE_PATH):
+            os.remove(config.STATUS_FILE_PATH)
+
+if __name__ == "__main__":
+    main()
