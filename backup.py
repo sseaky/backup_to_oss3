@@ -55,16 +55,24 @@ def run_decrypto_debug():
             print(f"  AK:  {cfg['access_key']}")
 
 def get_remote_dir():
-    """根据配置生成远程存储目录名"""
-    if config.CLIENT_NAME:
-        return config.CLIENT_NAME
-    parts = [get_hostname()]
+    """根据配置动态生成远程存储目录名"""
+    # 以 CLIENT_NAME 或 hostname 作为基础前缀
+    base_name = config.CLIENT_NAME if config.CLIENT_NAME else get_hostname()
+    parts = [base_name]
+
+    # 如果开启了公网 IP 开关，追加公网 IP
     if config.CLIENT_NAME_WITH_PUBLIC_IP:
         pub_ip = get_public_ip()
-        if pub_ip: parts.append(pub_ip)
+        if pub_ip:
+            parts.append(pub_ip)
+
+    # 如果开启了私网 IP 开关，追加私网 IP
     if config.CLIENT_NAME_WITH_PRIVATE_IP:
         priv_ip = get_default_private_ip()
-        if priv_ip: parts.append(priv_ip)
+        if priv_ip:
+            parts.append(priv_ip)
+
+    # 使用下划线连接所有部分
     return "_".join(parts)
 
 def collect_status():
@@ -102,12 +110,14 @@ def get_oss_stats(client, bucket_name, remote_prefix):
         return "未知", f"获取失败: {e}"
 
 def create_archive():
-    """执行打包与可选的密码加密"""
+    """执行打包与可选的密码加密，并处理 tar 常见的退出码"""
     now_tag = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     base_name = f"{config.BACKUP_FILE_STEM}_{now_tag}"
     tar_name = f"{base_name}.tar.gz"
 
     print(f"[*] 正在创建本地归档: {tar_name}...")
+    
+    # 构造命令
     cmd = ["tar", "-czf", tar_name]
     if config.TAR_DEREFERENCE: cmd.append("-h")
     for exclude in config.SOURCE_EXCLUDE:
@@ -121,8 +131,18 @@ def create_archive():
         raise Exception("没有找到任何有效的备份源路径")
 
     cmd.extend(paths)
-    subprocess.run(cmd, check=True)
+    
+    # 优化点：手动处理进程，允许退出码 1 (Warning)
+    process = subprocess.run(cmd, capture_output=True, text=True)
+    
+    # tar 返回 0 是成功，返回 1 是警告（如文件消失），这在备份时通常可以接受
+    if process.returncode not in [0, 1]:
+        error_msg = process.stderr if process.stderr else "未知错误"
+        raise Exception(f"tar 命令失败 (退出码 {process.returncode}): {error_msg}")
+    elif process.returncode == 1:
+        print(f"[!] 警告: 备份过程中某些文件发生了变动 (tar exit code 1)")
 
+    # 之后的 ZIP 处理逻辑保持不变
     if config.USE_ZIP:
         zip_name = f"{base_name}.zip"
         print(f"[*] 正在执行 ZIP 密码加密...")
@@ -190,7 +210,7 @@ def main():
         # --- 3. 遍历上传至 OSS ---
         for cfg in config.OSS_CONFIGS:
             try:
-                print(f"[*] 正在上传至节点: {cfg['server_name']}...")
+                print(f"[*] 正在上传至节点: {cfg['server_name']}/{remote_dir}...")
                 u_val, ak_val, sk_val = cfg['url'], cfg['access_key'], cfg['secret_key']
                 if cfg.get("crypto"):
                     u_val = decrypto(u_val, config.SKEY); ak_val = decrypto(ak_val, config.SKEY); sk_val = decrypto(sk_val, config.SKEY)
@@ -210,7 +230,7 @@ def main():
                 print(f"    [OK] 节点: {cfg['server_name']} | 远程总数: {total_remote} | 最早: {oldest_info} | 清理: {del_num}")
                 
                 oss_info_msg.append(
-                    f"🟢 **{cfg['server_name']}**\n"
+                    f"🟢 **{cfg['server_name']}/{remote_dir}**\n"
                     f" └ 上传成功 (清理:{del_num})\n"
                     f" └ 远程总数: {total_remote} 份\n"
                     f" └ 最早备份: {oldest_info}"

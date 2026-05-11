@@ -10,9 +10,9 @@ MIN_COUNT_TO_KEEP = 5       # 无论是否过期，最少保留的备份份数
 
 # --- 2. 客户端标识配置 ---
 # 远程BUCKET中的目录名。
-# 如果为空，则自动生成为: <hostname>_<public_ip> (取决于下方开关)
+# # BUCKET中的目录名，如果CLIENT_NAME为空，则自动为<hostname>，如果是家宽，用公网ip会导致目录变化 (取决于下方开关)
 CLIENT_NAME = ""
-CLIENT_NAME_WITH_PUBLIC_IP = True
+CLIENT_NAME_WITH_PUBLIC_IP = False
 CLIENT_NAME_WITH_PRIVATE_IP = False
 
 # --- 3. 系统状态收集 ---
