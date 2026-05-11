@@ -10,6 +10,7 @@ Description:
 """
 
 import re
+import os
 import socket
 import subprocess
 from cryptography.fernet import Fernet
@@ -86,3 +87,14 @@ def get_public_ip(timeout=3):
         except requests.RequestException as e:
             # print(f"访问 {url} 时出现异常: {e}")
             pass
+
+def get_file_size(file_path):
+    """获取人类易读的文件大小格式"""
+    try:
+        size_bytes = os.path.getsize(file_path)
+        for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+            if size_bytes < 1024.0:
+                return f"{size_bytes:.2f} {unit}"
+            size_bytes /= 1024.0
+    except Exception:
+        return "未知大小"

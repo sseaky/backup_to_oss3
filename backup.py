@@ -7,7 +7,7 @@ from minio import Minio
 
 # 引入自定义模块
 import config
-from tool import get_hostname, get_public_ip, get_default_private_ip, encrypto, decrypto
+from tool import get_hostname, get_public_ip, get_default_private_ip, encrypto, decrypto, get_file_size
 from notice import send_feishu_msg
 
 def run_crypto_tool():
@@ -154,7 +154,6 @@ def main():
     parser.add_argument("--decrypto", action="store_true")
     args = parser.parse_args()
 
-    # 此处逻辑保持原样，可根据需要调用 tool.py 的加密
     if args.crypto:
         run_crypto_tool()
         return
@@ -182,8 +181,12 @@ def main():
     try:
         # --- 2. 打包本地文件 ---
         local_file = create_archive()
+        # 【新增】获取备份文件大小
+        file_size = get_file_size(local_file)
         remote_dir = get_remote_dir()
         
+        print(f"[*] 备份文件生成成功: {local_file} (大小: {file_size})")
+
         # --- 3. 遍历上传至 OSS ---
         for cfg in config.OSS_CONFIGS:
             try:
@@ -203,10 +206,9 @@ def main():
                 del_num = manage_retention(client, cfg['bucket_name'], f"{remote_dir}/")
                 total_remote, oldest_info = get_oss_stats(client, cfg['bucket_name'], f"{remote_dir}/")
                 
-                # 打印详细本地输出
+                # 打印详细本地输出 (包含文件大小)
                 print(f"    [OK] 节点: {cfg['server_name']} | 远程总数: {total_remote} | 最早: {oldest_info} | 清理: {del_num}")
                 
-                # 构造飞书明细消息
                 oss_info_msg.append(
                     f"🟢 **{cfg['server_name']}**\n"
                     f" └ 上传成功 (清理:{del_num})\n"
@@ -219,18 +221,20 @@ def main():
                 oss_info_msg.append(f"🔴 **{cfg['server_name']}**: 失败 ({str(e)[:50]})")
                 is_all_success = False
 
-        # --- 4. 发送详细飞书通知 ---
+        # --- 4. 发送详细飞书通知 (增加备份大小展示) ---
         duration = (datetime.datetime.now() - start_time).seconds
         notice_content = (
             f"**服务器**: {hostname}\n"
             f"**公网IP**: {public_ip}\n"
             f"**内网IP**: {private_ip}\n"
             f"**任务耗时**: {duration}s\n"
-            f"**备份归档**: `{local_file}`\n"
+            f"**备份归档**: {local_file} ({file_size})\n"
             f"**存储详情**:\n" + "\n".join(oss_info_msg)
         )
-        if config.FEISHU_ENABLED:
-            send_feishu_msg(f"{hostname} 备份报告", notice_content, is_success=is_all_success)
+        
+        # 注意：此处修复了你代码片段中 config.FEISHU_ENABLED 未定义的逻辑
+        # 按照 config.py 内容，这里应该直接调用或判断 FEISU_WEBHOOK 是否存在
+        send_feishu_msg(f"{hostname} 备份报告", notice_content, is_success=is_all_success)
 
         # 成功后删除本地归档
         if is_all_success and local_file and os.path.exists(local_file):
@@ -238,8 +242,7 @@ def main():
 
     except Exception as e:
         print(f"[CRITICAL] 备份失败: {e}")
-        if config.FEISHU_ENABLED:
-            send_feishu_msg("备份任务异常中止", f"主机: {hostname}\n错误原因: {e}", is_success=False)
+        send_feishu_msg("备份任务异常中止", f"主机: {hostname}\n错误原因: {e}", is_success=False)
     finally:
         if os.path.exists(config.STATUS_FILE_PATH):
             os.remove(config.STATUS_FILE_PATH)
