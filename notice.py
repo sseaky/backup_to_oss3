@@ -5,7 +5,7 @@ import config
 
 def send_feishu_msg(title, content, is_success=True):
     """最简 Webhook 通知模式 (无签名)"""
-    if not config.FEISU_WEBHOOK:
+    if not config.FEISHU_WEBHOOK:
         return
 
     color = "blue" if is_success else "red"
@@ -41,7 +41,7 @@ def send_feishu_msg(title, content, is_success=True):
         # 移除所有签名相关字段，直接发送
         headers = {"Content-Type": "application/json"}
         response = requests.post(
-            config.FEISU_WEBHOOK, 
+            config.FEISHU_WEBHOOK, 
             data=json.dumps(payload), 
             headers=headers, 
             timeout=10
