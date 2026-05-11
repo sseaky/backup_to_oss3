@@ -42,7 +42,7 @@ cp config.example.py config.py
 vim config.py
 ```
 
-_主要配置项：_`_SOURCE_PATH_`_ (备份源), _`_OSS_CONFIGS_`_ (存储节点), _`_FEISU_WEBHOOK_`_ (通知地址)。_
+_主要配置项：_`_SOURCE_PATH_`_ (备份源), _`_OSS_CONFIGS_`_ (存储节点), _`_FEISHU_WEBHOOK_`_ (通知地址)。_
 
 ### 3. 高级用法：加密存储 AK/SK
 为了安全，建议不直接在配置文件写明文密钥：

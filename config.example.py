@@ -57,8 +57,8 @@ SOURCE_PATH = [
 SOURCE_EXCLUDE = ["*.log", "*.tmp", "*/.env", "*/.git"]
 
 # --- 5. 飞书通知配置 (Webhook) ---
-FEISU_WEBHOOK = "https://open.feishu.cn/open-apis/bot/v2/hook/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-FEISU_SEC = ""  # 如果飞书机器人开启了签名校验，请填写Secret；未开启则留空
+FEISHU_WEBHOOK = "https://open.feishu.cn/open-apis/bot/v2/hook/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+FEISHU_SEC = ""  # 如果飞书机器人开启了签名校验，请填写Secret；未开启则留空
 
 # --- 6. 远程存储 (S3/MinIO/OSS) 配置 ---
 # 支持多个节点同步上传

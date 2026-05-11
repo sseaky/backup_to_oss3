@@ -229,7 +229,8 @@ def main():
             f"**备份归档**: `{local_file}`\n"
             f"**存储详情**:\n" + "\n".join(oss_info_msg)
         )
-        send_feishu_msg(f"{hostname} 备份报告", notice_content, is_success=is_all_success)
+        if config.FEISHU_ENABLED:
+            send_feishu_msg(f"{hostname} 备份报告", notice_content, is_success=is_all_success)
 
         # 成功后删除本地归档
         if is_all_success and local_file and os.path.exists(local_file):
@@ -237,7 +238,8 @@ def main():
 
     except Exception as e:
         print(f"[CRITICAL] 备份失败: {e}")
-        send_feishu_msg("备份任务异常中止", f"主机: {hostname}\n错误原因: {e}", is_success=False)
+        if config.FEISHU_ENABLED:
+            send_feishu_msg("备份任务异常中止", f"主机: {hostname}\n错误原因: {e}", is_success=False)
     finally:
         if os.path.exists(config.STATUS_FILE_PATH):
             os.remove(config.STATUS_FILE_PATH)
