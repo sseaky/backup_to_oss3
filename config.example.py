@@ -6,7 +6,7 @@ USE_ZIP = True              # 是否在tar包基础上进行ZIP加密压缩
 ZIP_PASSWORD = "your_backup_password"  # ZIP压缩包解压密码
 BACKUP_FILE_STEM = "autobackup"        # 备份文件名前缀
 DAYS_TO_RETAIN = 30         # 远程备份保留天数
-MIN_COUNT_TO_KEEP = 2       # 无论是否过期，最少保留的备份份数
+MIN_COUNT_TO_KEEP = 5       # 无论是否过期，最少保留的备份份数
 
 # --- 2. 客户端标识配置 ---
 # 远程BUCKET中的目录名。
