@@ -184,7 +184,7 @@ def main():
 
     # --- 1. 获取基础环境信息 ---
     start_time = datetime.datetime.now()
-    hostname = get_hostname()
+    hostname = config.CLIENT_NAME if config.CLIENT_NAME else get_hostname()
     public_ip = get_public_ip()
     private_ip = get_default_private_ip()
     
