@@ -19,22 +19,20 @@ CLIENT_NAME_WITH_PRIVATE_IP = False
 BACKUP_STAUS = True         # 是否在备份前收集系统运行状态（如df, uptime等）
 STATUS_FILE_PATH = "/tmp/myState.txt"
 STATUS_COMMANDS = [
-    "hostname",
-    "uptime",
-    "w",
-    "last",
-    "lastb",
-    "free -h",
-    "mount",
-    "df -h",
-    "ip a",
-    "ip route",
-    "ip -6 route",
-    "iptables-save",
-    "netstat -anop",
-    "netstat -lntup",
-    "docker ps -a",
-    "docker images",
+    # 基础信息
+    "hostname", "uptime", "w", "last", "lastb",
+    # 资源与文件系统
+    "free -h", "df -h", "df -i", "mount", "cat /etc/fstab",
+    # 磁盘/分区（灾难恢复时重建 fstab/挂载的关键依据）
+    "lsblk", "blkid", "fdisk -l",
+    # 网络
+    "ip a", "ip route", "ip -6 route", "iptables-save", "ss -tunlp",
+    "netstat -anop", "netstat -lntup",
+    # 服务与容器
+    "systemctl list-units --type=service --state=running",
+    "systemctl list-unit-files --state=enabled",
+    "docker ps -a", "docker images", "docker volume ls", "docker network ls",
+    # 定时任务
     "crontab -l",
 ]
 
@@ -60,10 +58,19 @@ SOURCE_EXCLUDE = ["*.log", "*.tmp", "*/.env", "*/.git"]
 FEISHU_WEBHOOK = "https://open.feishu.cn/open-apis/bot/v2/hook/xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
 FEISHU_SEC = ""  # 如果飞书机器人开启了签名校验，请填写Secret；未开启则留空
 
+HTTP_PROXY = None
+
 # --- 6. 远程存储 (S3/MinIO/OSS) 配置 ---
 # 支持多个节点同步上传
-SKEY = "your_fernet_encrypt_key_here"  # 用于加密下放AK/SK的SKey (由 tool.py 生成)
+SKEY = "your_fernet_encrypt_key_here"  # 用于加密下放AK/SK的SKey（生成方式见 ReadMe「凭据密文管理」）
 
+# OSS 连接超时（秒）：避免节点不可达时长时间阻塞
+OSS_CONNECT_TIMEOUT = 5
+OSS_READ_TIMEOUT = 15
+# 强制使用 IPv4 连接：部分 S3 网关（IPv4/IPv6 双栈）的 IPv6 前端鉴权异常会返回 AccessDenied
+OSS_FORCE_IPV4 = True
+
+# 列表中的节点即实际生效的节点，不要用 [1:] / [:1] 之类的切片做调试过滤
 OSS_CONFIGS = [
     {
         "server_name": "My-Cloud-Storage",
